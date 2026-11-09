@@ -1,0 +1,8 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(nvidia-smi -L)",
+      "Bash(python3 -c \"import torch,ultralytics,cv2,supervision;print\\('ok'\\)\")"
+    ]
+  }
+}
