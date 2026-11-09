@@ -93,6 +93,17 @@ RTSP/webcam sources always use a latest-frame reader so latency never accumulate
 Benchmark metrics: end-to-end FPS, p50/p95/p99 latency, detect vs track ms, **RT factor** (≥1 = keeps up with source),
 CPU %, RAM, GPU util/mem/power (NVML), number of alerts, per-frame counts.
 
+## Google Colab (GPU)
+`notebooks/people_counter_colab.ipynb` replicates the whole workflow on a Colab GPU. It is self-contained (the `peoplecount/`
+package is embedded) and loops over **every video in `videos/`** of the Colab working directory:
+1. Open it in Colab, `Runtime > Change runtime type > GPU`.
+2. Drag your videos into `videos/` in the file browser (or use the upload prompt in step 5).
+3. `Runtime > Run all`. Settings (models, alert threshold, hold/clear, clip lengths, image size, tracker) are form fields in step 4.
+
+It runs (A) the model benchmark with a results table + HTML report, and (B) alerts + evidence clips for each video with a
+summary table of every violation and playable clip previews. The last cell zips and downloads all outputs.
+After changing anything in `peoplecount/`, regenerate the notebook: `python notebooks/build_colab_notebook.py`.
+
 ## Trial on different hardware
 Each run is tagged with CPU/GPU or cloud instance type (auto-detected, override with `--tag`). Copy the JSONs into
 one `results/` folder and re-run `report`.

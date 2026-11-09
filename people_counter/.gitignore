@@ -7,3 +7,4 @@ videos/*
 !videos/.gitkeep
 samples/*
 !samples/.gitkeep
+*.zip
