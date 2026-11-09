@@ -5,3 +5,5 @@ __pycache__/
 *.engine
 videos/*
 !videos/.gitkeep
+samples/*
+!samples/.gitkeep

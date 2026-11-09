@@ -16,7 +16,7 @@ def main(argv=None):
         s.add_argument("--threshold", type=int, default=10, help="alert when people count exceeds this")
         s.add_argument("--hold", type=float, default=2.0, help="seconds over threshold before ALERT")
         s.add_argument("--clear", type=float, default=3.0, help="seconds under threshold before CLEARED")
-        s.add_argument("--cooldown", type=float, default=30.0)
+        s.add_argument("--cooldown", type=float, default=0.0, help="min seconds between alerts (0 = every episode is alerted)")
         s.add_argument("--stride", type=int, default=1, help="process every Nth frame")
         s.add_argument("--tracker", default="bytetrack", choices=["bytetrack", "botsort"])
 
@@ -28,7 +28,12 @@ def main(argv=None):
     s.add_argument("--realtime", action="store_true", help="pace a file at its native FPS and drop frames when slow")
     s.add_argument("--show", action="store_true")
     s.add_argument("--out-dir", default="samples", help="outputs go to <out-dir>/<video-name>/<time>_<uuid>_<model>_<video-name>.*")
-    s.add_argument("--save", help="override the annotated-mp4 path"); s.add_argument("--no-save", action="store_true", help="do not write a video")
+    s.add_argument("--save", help="override the annotated-mp4 path")
+    s.add_argument("--no-clips", action="store_true", help="do not cut evidence clips")
+    s.add_argument("--clip-pre", type=float, default=3.0, help="seconds of footage kept BEFORE the violation started")
+    s.add_argument("--clip-post", type=float, default=3.0, help="seconds kept AFTER the alert was raised")
+    s.add_argument("--merge-gap", type=float, default=1.0, help="alerts whose clips are closer than this are merged into one clip")
+    s.add_argument("--no-save", action="store_true", help="do not write a video")
     s.add_argument("--alert-log", help="override the alert JSONL path"); s.add_argument("--webhook"); s.set_defaults(f="run")
 
     s = sub.add_parser("benchmark", help="compare models on your video(s) on THIS machine")

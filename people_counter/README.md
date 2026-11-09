@@ -40,13 +40,15 @@ python -m peoplecount report --target-fps 25                                  # 
 "MAE" is agreement with the median of all models, not true accuracy**; hand-count ~20 frames to get real numbers.
 
 ### Where outputs go
-`run` saves its results by default, one folder per input video:
+`run` saves everything by default, one folder per input video (`<id>` = `<YYYYmmdd-HHMMSS>_<uuid8>_<model>_<video-name>`):
 ```
-samples/<video-name>/<YYYYmmdd-HHMMSS>_<uuid8>_<model>_<video-name>.mp4           # annotated video (boxes, IDs, count, alert banner)
-samples/<video-name>/<YYYYmmdd-HHMMSS>_<uuid8>_<model>_<video-name>.alerts.jsonl  # one JSON line per ALERT/CLEARED (only if one fired)
+samples/<video-name>/<id>.mp4              annotated video (boxes, IDs, count, alert banner, timecode)
+samples/<video-name>/<id>.alerts.jsonl     one JSON line per ALERT / CLEARED event
+samples/<video-name>/<id>.episodes.json    summary of EVERY time the limit was exceeded (+ which clip covers it)
+samples/<video-name>/<id>_clips/clip001_00h00m12s_alert1.mp4 ...   evidence clips
 ```
-Webcam sources use `samples/camera0/`, RTSP sources a folder named after the stream. Options: `--no-save` (no video),
-`--out-dir DIR` (default `samples`), `--save PATH` / `--alert-log PATH` (exact paths).
+Webcam sources use `samples/camera0/`, RTSP sources a folder named after the stream. Options: `--no-save` (no full video),
+`--no-clips`, `--out-dir DIR`, `--save PATH` / `--alert-log PATH`.
 `benchmark` writes `results/*.json` (raw data) and `reports/report_<hardware>_<time>.html|csv` (per-run report).
 
 ### Sample call from Python
@@ -68,9 +70,22 @@ for idx, t, frame in src:
     alerts.update(r.smooth, t)
 ```
 
-### Alert semantics (`peoplecount/alert.py`)
-ALERT fires when smoothed count `> --threshold` for `--hold` seconds; CLEARED after `--clear` seconds at/below it;
-`--cooldown` suppresses repeat alerts. Sinks: console, JSONL file, webhook (add your own: a callable taking an `AlertEvent`).
+### Alerts: every violation is recorded
+An *episode* is one continuous period with the (smoothed) count above `--threshold` (alert fires at limit+1 or more).
+* **Time of violation**: `start_t` / `start_timecode` = the first moment the limit was exceeded (not when the alert was raised).
+* **ALERT** is raised once the count stays above the limit for `--hold` seconds (default 2; use `--hold 0` to alert on any breach).
+* **CLEARED** after `--clear` seconds (default 3) at/below the limit. Short dips don't split an episode. Episode end = last moment over.
+* **Every episode is recorded** (`--cooldown` defaults to 0; set it only if you want to throttle notifications).
+* Each event/episode carries: episode number, `start_timecode`, alert time, `end_timecode`, `duration_s`, `peak_count`/`peak_t`,
+  wall-clock time (`wall_time_iso`) and the clip file. A video that ends mid-episode is closed with `reason: "stream_end"`.
+* Sinks: console, JSONL file, webhook (add your own: a callable taking an `AlertEvent`).
+
+### Evidence clips (overlaps merged)
+Each alert produces a clip from `--clip-pre` (3 s) **before the violation started** to `--clip-post` (3 s) **after the alert was
+raised**, annotated like the main video. To avoid many near-duplicate clips, alerts whose clip windows overlap (or are
+within `--merge-gap` seconds, default 1) are merged into ONE clip that is simply extended; episodes list the clip that covers them.
+Example from a real run: three alert episodes in one video -> a single 15.7 s clip.
+Footage before the violation comes from a small in-RAM buffer of recent annotated frames (JPEG, ~10-15 MB for 1080p), so no pre-recording to disk.
 
 ### Real-time behaviour
 `run --realtime` paces files at native FPS and **drops frames when the model is too slow** (reported as `dropped`);
