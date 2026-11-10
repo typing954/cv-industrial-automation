@@ -27,14 +27,14 @@ def bench_one(name, video, args, hw, tag):
         os.environ["OMP_NUM_THREADS"] = str(args.threads)
     t_load = time.perf_counter()
     det = Detector(spec, args.device, args.conf, args.imgsz, threads=args.threads)
-    probe = VideoSource(video, stride=1, max_frames=1)
+    probe = VideoSource(video, max_frames=1)
     first = next(iter(probe))[2]
     probe.close()
     det.warmup(first, args.warmup)
     load_s = time.perf_counter() - t_load
 
-    src = VideoSource(video, stride=args.stride, max_frames=args.max_frames)
-    pc = PeopleCounter(det, fps=src.fps / args.stride, track=not args.no_track, tracker=args.tracker)
+    src = VideoSource(video, target_fps=args.target_fps, max_frames=args.max_frames)
+    pc = PeopleCounter(det, fps=src.eff_fps, track=not args.no_track, tracker=args.tracker)
     am = AlertManager(args.threshold, hold_s=args.hold, clear_s=args.clear, cooldown_s=args.cooldown)
     sampler = hardware.ResourceSampler().start()
     lat, det_t, trk_t, idxs, raw, tracked, smooth, flags = [], [], [], [], [], [], [], []
@@ -62,7 +62,7 @@ def bench_one(name, video, args, hw, tag):
     out = {
         "model": spec.name, "backend": spec.backend, "weights": spec.weights, "imgsz": det.imgsz, "device": det.device,
         "half": det.half, "tag": tag, "hardware": hw, "video": os.path.basename(video), "video_fps": src.fps,
-        "video_size": src.size, "stride": args.stride, "frames": n, "conf": args.conf, "threshold": args.threshold,
+        "video_size": src.size, "target_fps": args.target_fps, "detect_fps": src.eff_fps, "frames": n, "conf": args.conf, "threshold": args.threshold,
         "load_warmup_s": round(load_s, 2),
         "latency_ms": {"mean": ms.mean(), "p50": pct(ms, 50), "p95": pct(ms, 95), "p99": pct(ms, 99),
                        "max": ms.max(), "detect_mean": np.mean(det_t) * 1e3, "track_mean": np.mean(trk_t) * 1e3,
@@ -70,7 +70,7 @@ def bench_one(name, video, args, hw, tag):
         "fps_inference": 1000 / ms.mean(),               # model+tracker only
         "fps_end_to_end": n / wall,                      # incl. video decode
         "fps_p95_worst": 1000 / pct(ms, 95),              # sustained-ish worst case
-        "realtime_factor": (n / wall) / (src.fps / args.stride),  # >=1 => keeps up with the source
+        "realtime_factor": (n / wall) / src.eff_fps,  # >=1 => keeps up with the detection rate
         "resources": res,
         "alerts": sum(e.kind == "ALERT" for e in am.events), "alert_events": [vars(e) for e in am.events],
         "series": {"frame_idx": idxs, "raw": raw, "tracked": tracked, "smooth": smooth, "alert_active": flags},
@@ -89,6 +89,7 @@ def run(args):
     models = args.models or DEFAULT_SET
     print(f"hardware tag: {tag}\n{json.dumps({k: v for k, v in hw.items()}, indent=1)}", flush=True)
     written, summary = [], []
+    bar = args.target_fps or 25.0   # real-time bar: the detection rate you asked for (25 FPS if you asked for every frame)
     for video in args.video:
         for m in models:
             print(f"\n=== {m} on {tag} | {os.path.basename(video)}", flush=True)
@@ -104,13 +105,13 @@ def run(args):
                   f"max count {r['max_count']} | alerts {r['alerts']} | rt-factor {r['realtime_factor']:.2f} -> {f}", flush=True)
 
     if summary:
-        print_summary(summary, args.target_fps)
+        print_summary(summary, bar)
     if summary and not args.no_report:
         from .report import build
         stamp = time.strftime("%Y%m%d-%H%M%S")
         rep = Path(args.reports) / f"report_{tag}_{stamp}.html"
         rep.parent.mkdir(parents=True, exist_ok=True)
-        build(outdir, rep, args.gt, args.target_fps, files=written)
+        build(outdir, rep, args.gt, bar, files=written)
         print(f"\nReport for this run: {rep}  (+ {rep.with_suffix('.csv')})")
         print("All runs combined:   python -m peoplecount report")
 

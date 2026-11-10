@@ -29,7 +29,7 @@ python -m peoplecount run videos/room.mp4 --model yolo11s --threshold 10 --hold 
 
 # 2. Compare models on YOUR video on THIS machine (writes results/<hardware-tag>__<model>__<video>.json)
 python -m peoplecount benchmark videos/room.mp4 --threshold 10                # default shortlist
-python -m peoplecount benchmark videos/room.mp4 --models yolo11n yolo11m rtdetr-l fasterrcnn_r50 --stride 2
+python -m peoplecount benchmark videos/room.mp4 --models yolo11n yolo11m rtdetr-l fasterrcnn_r50 --target-fps 5
 
 # (every benchmark run ends with a console table + reports/report_<hardware>_<time>.html/.csv for THAT run)
 
@@ -38,6 +38,20 @@ python -m peoplecount report --target-fps 25                                  # 
 ```
 `gt.csv` format: `frame,count` (sparse is fine, e.g. every 50th frame hand-counted). **Without it, the report's
 "MAE" is agreement with the median of all models, not true accuracy**; hand-count ~20 frames to get real numbers.
+
+### Choosing the detection rate: `--target-fps`
+`--target-fps N` runs detection on **N frames per second of video**, whatever the video's own FPS (default: every frame).
+Frames are picked evenly in time, so a 30 fps video with `--target-fps 5` is analysed 5 times per second and still plays in
+real time; alert times, `hold`/`clear` seconds and clips all use the video's own clock. It can't exceed the video's FPS
+(asking for 60 on a 25 fps video uses all 25). Examples:
+```bash
+python -m peoplecount run videos/classroom.mp4 --model yolo11n --target-fps 2 --threshold 10      # 2 detections/s
+python -m peoplecount run videos/classroom.mp4 --model yolo11s --target-fps 15 --realtime         # paced like a live camera
+python -m peoplecount benchmark videos/classroom.mp4 --target-fps 10                              # also the real-time bar
+```
+In `benchmark`, `--target-fps` is both the rate models are run at and the real-time bar (a model passes if it sustains that FPS
+with p95 latency under 1000/FPS ms; 25 when you don't set it). Note that the count smoothing averages the last 9 detections, so at
+very low rates (1-2/s) alerts react a few seconds later and fast-moving people can be harder to track.
 
 ### Where outputs go
 `run` saves everything by default, one folder per input video (`<id>` = `<YYYYmmdd-HHMMSS>_<uuid8>_<model>_<video-name>`):
@@ -62,8 +76,8 @@ from peoplecount.counter import PeopleCounter
 from peoplecount.alert import AlertManager, ConsoleSink
 from peoplecount.video import VideoSource
 
-src = VideoSource("videos/classroom.mp4", stride=3)          # or 0 (webcam) / "rtsp://..."
-counter = PeopleCounter(Detector(resolve("yolo11n"), threads=4), fps=src.fps / 3)
+src = VideoSource("videos/classroom.mp4", target_fps=5)      # detect 5x per second; or 0 (webcam) / "rtsp://..."
+counter = PeopleCounter(Detector(resolve("yolo11n"), threads=4), fps=src.eff_fps)
 alerts = AlertManager(threshold=10, hold_s=2, sinks=[ConsoleSink()])
 for idx, t, frame in src:
     r = counter.step(frame)          # r.smooth = people count; r.boxes, r.ids = tracked people
@@ -93,6 +107,17 @@ RTSP/webcam sources always use a latest-frame reader so latency never accumulate
 Benchmark metrics: end-to-end FPS, p50/p95/p99 latency, detect vs track ms, **RT factor** (≥1 = keeps up with source),
 CPU %, RAM, GPU util/mem/power (NVML), number of alerts, per-frame counts.
 
+## Streaming to Vertex AI / SageMaker endpoints (separate module)
+`cloudstream/` is a **separate** package for running the detector on a hosted endpoint instead of locally: a YOLO inference container
+(one image for both Amazon SageMaker and Vertex AI), deploy scripts, and a streaming client that plays a **video in a loop** as a live
+stream, sends batched/pipelined frames to the endpoint, then tracks and alerts with the **same alert system** (same rules, episodes,
+clips and output files as `python -m peoplecount run`). It also benchmarks an endpoint's max FPS. `peoplecount/` is untouched by it.
+```bash
+python -m cloudstream serve &            # local test server
+python -m cloudstream stream videos/classroom.mp4 --endpoint-type http --url http://localhost:8080 --fps 15 --duration 60
+```
+See [cloudstream/README.md](cloudstream/README.md) for deployment to SageMaker/Vertex, tuning and what is verified.
+
 ## Google Colab (GPU)
 `notebooks/people_counter_colab.ipynb` replicates the whole workflow on a Colab GPU. It is self-contained (the `peoplecount/`
 package is embedded) and loops over **every video in `videos/`** of the Colab working directory:
@@ -103,6 +128,16 @@ package is embedded) and loops over **every video in `videos/`** of the Colab wo
 It runs (A) the model benchmark with a results table + HTML report, and (B) alerts + evidence clips for each video with a
 summary table of every violation and playable clip previews. The last cell zips and downloads all outputs.
 After changing anything in `peoplecount/`, regenerate the notebook: `python notebooks/build_colab_notebook.py`.
+
+**Simple notebook:** `notebooks/people_counter_colab_simple.ipynb` is the minimal version: pick a video (or folder), a people limit and a model; it
+shows, per video, the people detected (peak/average), a chart of people over time with the over-the-limit stretches shaded, a table of those time
+ranges, a snapshot of the busiest moment with people boxed, and a clip of each. No benchmarking. Regenerate with `python notebooks/build_colab_simple_notebook.py`.
+`run` now also writes `<id>.counts.csv` (people count at every processed frame) and a `summary` block in `<id>.episodes.json`.
+
+**Unified notebook:** `notebooks/people_counter_colab_unified.ipynb` merges both parts and works per video. Set `VIDEO_PATH` to a
+single video file or a folder (optionally `NAME_FILTER` to pick by file name). For each video it runs the model benchmark (Part A) and
+alerts + clips (Part B) and shows that video's report, results table, violations table and playable clips, then ends with a
+cross-video summary. Regenerate with `python notebooks/build_colab_unified_notebook.py`.
 
 ## Trial on different hardware
 Each run is tagged with CPU/GPU or cloud instance type (auto-detected, override with `--tag`). Copy the JSONs into
@@ -126,7 +161,7 @@ python -m peoplecount export yolo11s --format engine --half     # NVIDIA / Jetso
 python -m peoplecount export yolo11s --format onnx
 python -m peoplecount benchmark videos/room.mp4 --models yolo11s.pt yolo11s_openvino_model yolo11s.engine --tag edge-box
 ```
-Other levers: `--imgsz 480/416` (large speed gain, check small/far people), `--stride 2-3` (counting rarely needs full FPS),
+Other levers: `--imgsz 480/416` (large speed gain, check small/far people), `--target-fps 5` (counting rarely needs more than a few detections per second),
 smaller model, `--conf` tuning.
 
 ## Notes

@@ -28,7 +28,7 @@ def output_paths(args, spec):
     d.mkdir(parents=True, exist_ok=True)
     video = None if args.no_save else (args.save or str(d / f"{run_id}.mp4"))
     alerts = args.alert_log or str(d / f"{run_id}.alerts.jsonl")
-    return video, alerts, str(d / f"{run_id}.episodes.json"), str(d / f"{run_id}_clips")
+    return video, alerts, str(d / f"{run_id}.episodes.json"), str(d / f"{run_id}_clips"), str(d / f"{run_id}.counts.csv")
 
 
 def draw(frame, res, fps, threshold, alerting, model, t=None):
@@ -46,11 +46,11 @@ def draw(frame, res, fps, threshold, alerting, model, t=None):
 
 def run(args):
     spec = resolve(args.model)
-    args.save, args.alert_log, episodes_path, clips_dir = output_paths(args, spec)
+    args.save, args.alert_log, episodes_path, clips_dir, counts_path = output_paths(args, spec)
     det = Detector(spec, args.device, args.conf, args.imgsz, threads=args.threads)
-    src = VideoSource(args.source, realtime=args.realtime, stride=args.stride)
+    src = VideoSource(args.source, realtime=args.realtime, target_fps=args.target_fps)
     det.warmup(next(iter(VideoSource(args.source, max_frames=1)))[2], 3)
-    pc = PeopleCounter(det, fps=src.fps / args.stride, tracker=args.tracker)
+    pc = PeopleCounter(det, fps=src.eff_fps, tracker=args.tracker)
     sinks = [ConsoleSink()] + ([JsonlSink(args.alert_log)] if args.alert_log else []) + \
             ([WebhookSink(args.webhook)] if args.webhook else [])
     am = AlertManager(args.threshold, args.hold, args.clear, cooldown_s=args.cooldown, sinks=sinks)
@@ -59,14 +59,15 @@ def run(args):
         on_clip=lambda c: print(f"🎞  clip saved: {c['path']} ({c['duration_s']:.1f}s, alerts {c['episodes']})", flush=True))
     writer, ema, n, t_start = None, 0.0, 0, time.perf_counter()
     print(f"video out: {args.save or '(disabled)'}\nalert log: {args.alert_log}\nepisodes : {episodes_path}\n"
-          f"clips dir: {'(disabled)' if clips is None else clips_dir}", flush=True)
+          f"clips dir: {'(disabled)' if clips is None else clips_dir}\ncounts   : {counts_path}", flush=True)
     print(f"model={spec.name} device={det.device} source={args.source} {src.size} @ {src.fps:.1f}fps "
           f"{'(live)' if src.live else ''}", flush=True)
-    t_last, last_count = 0.0, 0
+    t_last, last_count, series = 0.0, 0, []
     for idx, t, frame in src:
         t0 = time.perf_counter()
         res = pc.step(frame)
         ev = am.update(res.smooth, t)
+        series.append((idx, round(t, 3), timecode(t), res.smooth, res.raw))
         dt = time.perf_counter() - t0
         ema = dt if not ema else 0.9 * ema + 0.1 * dt
         n += 1
@@ -78,7 +79,7 @@ def run(args):
                 if ev and ev.kind == "ALERT":
                     am.episodes[-1]["clip"] = clips.on_alert(ev.start_t, ev.t, ev.episode)
             if args.save and writer is None:
-                writer = cv2.VideoWriter(args.save, cv2.VideoWriter_fourcc(*"mp4v"), src.fps / args.stride, src.size)
+                writer = cv2.VideoWriter(args.save, cv2.VideoWriter_fourcc(*"mp4v"), src.eff_fps, src.size)
             if writer:
                 writer.write(out)
             if args.show:
@@ -95,10 +96,19 @@ def run(args):
         by_ep = {e: c["path"] for c in clips.clips for e in c["episodes"]}
         for ep in am.episodes:
             ep["clip"] = by_ep.get(ep["episode"], ep["clip"])
+    import csv
     import json
+    with open(counts_path, "w", newline="") as f:           # people count at every processed frame
+        w = csv.writer(f)
+        w.writerow(["frame", "t", "timecode", "people", "raw"])
+        w.writerows(series)
+    smooth = [r[3] for r in series] or [0]
+    summary = {"frames": n, "duration_s": round(t_last, 3), "video_fps": src.fps, "max_people": int(max(smooth)),
+               "avg_people": round(sum(smooth) / len(smooth), 2), "distinct_tracks": len(pc.seen)}
     with open(episodes_path, "w") as f:
         json.dump({"source": str(args.source), "model": spec.name, "threshold": args.threshold, "hold_s": args.hold,
-                   "clear_s": args.clear, "episodes": am.episodes, "clips": clips.clips if clips else []}, f, indent=1)
+                   "clear_s": args.clear, "summary": summary, "counts_csv": counts_path, "episodes": am.episodes,
+                   "clips": clips.clips if clips else []}, f, indent=1)
     src.close()
     wall = time.perf_counter() - t_start
     print(f"done: {n} frames in {wall:.1f}s ({n/wall:.1f} FPS), dropped={src.dropped}, "

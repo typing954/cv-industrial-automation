@@ -1,0 +1,6 @@
+# Client side (what you run next to the camera / video). The base project requirements.txt is also needed (peoplecount imports).
+requests>=2.31
+# install only the one you use:
+boto3>=1.34                    # Amazon SageMaker endpoints
+google-cloud-aiplatform>=1.50  # Vertex AI endpoints
+# server side (inside the container): see cloudstream/server/requirements.txt

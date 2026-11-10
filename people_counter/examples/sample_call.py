@@ -18,13 +18,13 @@ ap = argparse.ArgumentParser()
 ap.add_argument("video")
 ap.add_argument("--model", default="yolo11n")
 ap.add_argument("--threshold", type=int, default=10)
-ap.add_argument("--stride", type=int, default=5, help="process every Nth frame")
+ap.add_argument("--target-fps", type=float, default=2.0, help="run detection at this many frames per second")
 ap.add_argument("--max-frames", type=int, default=40)
 a = ap.parse_args()
 
 detector = Detector(resolve(a.model), device="auto", conf=0.3, threads=4)         # 1. pick a model
-src = VideoSource(a.video, stride=a.stride, max_frames=a.max_frames)               # 2. file / webcam index / rtsp:// URL
-counter = PeopleCounter(detector, fps=src.fps / a.stride)                          # 3. detector + ByteTrack + smoothing
+src = VideoSource(a.video, target_fps=a.target_fps, max_frames=a.max_frames)               # 2. file / webcam index / rtsp:// URL
+counter = PeopleCounter(detector, fps=src.eff_fps)                          # 3. detector + ByteTrack + smoothing
 alerts = AlertManager(a.threshold, hold_s=1.0, clear_s=2.0, sinks=[ConsoleSink()]) # 4. alert rule (add WebhookSink etc.)
 
 for frame_idx, t, frame in src:

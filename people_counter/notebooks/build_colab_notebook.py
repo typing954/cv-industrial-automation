@@ -73,10 +73,9 @@ HOLD_S = 2.0                                      #@param {type:"number"}
 CLEAR_S = 3.0                                     #@param {type:"number"}
 CONF = 0.3                                        #@param {type:"number"}
 IMGSZ = 0                                         #@param {type:"integer"}
-STRIDE = 1                                        #@param {type:"integer"}
 TRACKER = "bytetrack"                             #@param ["bytetrack", "botsort"]
 MAX_FRAMES = 0                                    #@param {type:"integer"}
-TARGET_FPS = 25                                   #@param {type:"number"}
+TARGET_FPS = 25                                   #@param {type:"number"}   # detect at this many frames/s (0 = every frame); also the real-time bar
 RUN_BENCHMARK = True                              #@param {type:"boolean"}
 RUN_ALERTS_AND_CLIPS = True                       #@param {type:"boolean"}
 ALERT_MODEL = "yolo11s"                           #@param {type:"string"}
@@ -129,7 +128,7 @@ def sh(args):
     return p.wait()
 
 COMMON = ["--device", DEVICE, "--conf", str(CONF), "--threshold", str(THRESHOLD), "--hold", str(HOLD_S),
-          "--clear", str(CLEAR_S), "--stride", str(STRIDE), "--tracker", TRACKER]
+          "--clear", str(CLEAR_S), *(["--target-fps", str(TARGET_FPS)] if TARGET_FPS else []), "--tracker", TRACKER]
 if IMGSZ: COMMON += ["--imgsz", str(IMGSZ)]
 ''', title="Helpers")
 
@@ -156,7 +155,7 @@ def show_latest_report(since):
 if RUN_BENCHMARK:
     t_bench = time.time()
     cmd = [sys.executable, "-m", "peoplecount", "benchmark", *VIDEOS, "--models", *MODEL_LIST, *COMMON,
-           "--target-fps", str(TARGET_FPS), "--out", "results", "--reports", "reports"]
+           "--out", "results", "--reports", "reports"]
     if MAX_FRAMES: cmd += ["--max-frames", str(MAX_FRAMES)]
     sh(cmd)
     show_latest_report(t_bench)

@@ -17,7 +17,8 @@ def main(argv=None):
         s.add_argument("--hold", type=float, default=2.0, help="seconds over threshold before ALERT")
         s.add_argument("--clear", type=float, default=3.0, help="seconds under threshold before CLEARED")
         s.add_argument("--cooldown", type=float, default=0.0, help="min seconds between alerts (0 = every episode is alerted)")
-        s.add_argument("--stride", type=int, default=1, help="process every Nth frame")
+        s.add_argument("--target-fps", type=float, default=None, help="run detection at this many frames per second "
+                       "(default: every frame). Frames are picked evenly in time; can't exceed the video's own FPS")
         s.add_argument("--tracker", default="bytetrack", choices=["bytetrack", "botsort"])
 
     s = sub.add_parser("list-models"); s.set_defaults(f="list")
@@ -42,7 +43,6 @@ def main(argv=None):
     s.add_argument("--out", default="results"); s.add_argument("--tag"); s.add_argument("--max-frames", type=int)
     s.add_argument("--warmup", type=int, default=10)
     s.add_argument("--no-track", action="store_true"); s.add_argument("--no-cloud-detect", action="store_true")
-    s.add_argument("--target-fps", type=float, default=25.0, help="real-time target used in summary/report")
     s.add_argument("--reports", default="reports", help="folder for the per-run HTML/CSV report")
     s.add_argument("--no-report", action="store_true"); s.add_argument("--gt", help="ground-truth CSV (frame,count)")
     s.set_defaults(f="bench")
@@ -50,7 +50,7 @@ def main(argv=None):
     s = sub.add_parser("report", help="HTML/CSV comparison across everything in results/")
     s.add_argument("--results", default="results"); s.add_argument("--out", default="report.html")
     s.add_argument("--gt", help="CSV with columns frame,count (optional ground truth)")
-    s.add_argument("--target-fps", type=float, default=25.0); s.set_defaults(f="report")
+    s.add_argument("--target-fps", type=float, default=25.0, help="real-time bar: FPS a model must sustain to pass"); s.set_defaults(f="report")
 
     s = sub.add_parser("export", help="export to onnx/openvino/engine(TensorRT)/ncnn...")
     s.add_argument("model"); s.add_argument("--format", required=True); s.add_argument("--imgsz", type=int, default=640)
