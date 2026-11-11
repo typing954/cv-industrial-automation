@@ -11,3 +11,6 @@ matplotlib>=3.7
 nvidia-ml-py>=12.535; platform_system != "Darwin"
 # optional CPU/edge acceleration (see `export` command)
 # onnxruntime / onnxruntime-gpu, openvino, tensorrt (Jetson/NVIDIA)
+# dashboard (webapp/)
+fastapi>=0.110
+uvicorn>=0.29

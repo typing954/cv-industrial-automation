@@ -8,3 +8,5 @@ videos/*
 samples/*
 !samples/.gitkeep
 *.zip
+webapp/frontend/node_modules/
+webapp/frontend/dist/
